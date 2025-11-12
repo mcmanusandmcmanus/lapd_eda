@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import sys
 from pathlib import Path
 from typing import Dict, List
 
@@ -9,7 +11,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
-import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
@@ -20,7 +21,8 @@ try:
 except Exception:  # pragma: no cover
     LabConfig = None
     generate_lab_report = None
-RAW_PATH = BASE_DIR / "data" / "raw" / "LAPD_Calls_for_Service_2024_to_Present_20251110.csv"
+RAW_DIR = BASE_DIR / "data" / "raw"
+RAW_GLOB = "LAPD_Calls_for_Service_*.csv"
 INTERIM_PATH = BASE_DIR / "data" / "interim" / "lapd_calls_clean.parquet"
 PROCESSED_PATH = BASE_DIR / "data" / "processed" / "lapd_calls_features.parquet"
 AGG_AREA_HOUR_PATH = BASE_DIR / "data" / "processed" / "call_volume_area_hour.parquet"
@@ -41,14 +43,83 @@ SAMPLE_COLUMNS = [
     "call_month",
 ]
 
+def ensure_directories() -> None:
+    targets = {
+        INTERIM_PATH.parent,
+        PROCESSED_PATH.parent,
+        FIGURES_DIR,
+        SUMMARY_PATH.parent,
+        PROFILE_JSON.parent,
+        ML_LAB_REPORT_PATH.parent,
+    }
+    for path in targets:
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def resolve_raw_path(raw_path: str | Path | None = None) -> Path:
+    if raw_path:
+        candidate = Path(raw_path).expanduser().resolve()
+        if not candidate.exists():
+            raise FileNotFoundError(f"Raw data file not found: {candidate}")
+        return candidate
+    if not RAW_DIR.exists():
+        raise FileNotFoundError(f"Raw data directory missing: {RAW_DIR}")
+    matches = sorted(RAW_DIR.glob(RAW_GLOB))
+    if not matches:
+        matches = sorted(RAW_DIR.glob("*.csv"))
+    if matches:
+        latest = max(matches, key=lambda candidate: candidate.stat().st_mtime)
+        log.info("Auto-selected raw feed %s", latest.name)
+        return latest
+    raise FileNotFoundError(
+        f"No raw CSV files matching '{RAW_GLOB}' were found in {RAW_DIR}"
+    )
+
+
+def safe_run_ml_lab(df: pd.DataFrame, skip_ml_lab: bool = False) -> None:
+    if skip_ml_lab:
+        log.info("Skipping ML Lab report (flag enabled).")
+        return
+    if not (LabConfig and generate_lab_report):
+        log.info("ML Lab dependencies unavailable; skipping model training.")
+        return
+    try:
+        config = LabConfig(
+            target="priority_level",
+            report_path=ML_LAB_REPORT_PATH,
+            synthetic="auto",
+            seed=13,
+            max_rows=150_000,
+            rf_params={
+                "n_estimators": 300,
+                "max_depth": 14,
+                "n_jobs": -1,
+                "random_state": 13,
+            },
+        )
+        log.info("Training ML Lab model (up to %s rows)...", config.max_rows or "all")
+        generate_lab_report(df, config.target, config)
+        log.info("ML Lab report written to %s", config.report_path)
+    except Exception as exc:  # pragma: no cover - diagnostic only
+        log.warning("Unable to generate ML Lab report: %s", exc)
+
+log = logging.getLogger("lapd_eda_pipeline")
+if not log.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+    log.addHandler(handler)
+log.setLevel(logging.INFO)
+log.propagate = False
+
 
 def configure_matplotlib() -> None:
     sns.set_theme(style="whitegrid", context="talk")
     plt.rcParams.update({"axes.spines.right": False, "axes.spines.top": False})
 
 
-def load_raw_data(limit: int | None = None) -> pd.DataFrame:
-    df = pd.read_csv(RAW_PATH, nrows=limit)
+def load_raw_data(path: Path, limit: int | None = None) -> pd.DataFrame:
+    log.info("Reading %s%s", path, f" (limit={limit:,})" if limit else "")
+    df = pd.read_csv(path, nrows=limit, low_memory=False)
     return df
 
 
@@ -198,7 +269,7 @@ def plot_daily_volume(df: pd.DataFrame) -> Path:
     )
     fig, ax = plt.subplots(figsize=(14, 6))
     series.plot(ax=ax, color="#0B5ED7")
-    ax.set_title("Daily LAPD Call Volume (2024–Present)")
+    ax.set_title("Daily LAPD Call Volume (2024-Present)")
     ax.set_xlabel("Dispatch Date")
     ax.set_ylabel("Number of Calls")
     ax.grid(True, alpha=0.3)
@@ -437,7 +508,7 @@ def build_summary_markdown(metrics: Dict[str, object], insights: Dict[str, objec
     outside_share = insights["outside_share"]
     code6_share = insights["code6_share"]
     md_lines = [
-        "# LAPD Calls for Service — Inspection & EDA",
+        "# LAPD Calls for Service -- Inspection & EDA",
         "",
         "## Dataset Snapshot",
         f"- **Records analysed:** {metrics['records']:,} ({metrics['unique_incidents']:,} unique incidents)",
@@ -524,38 +595,36 @@ def save_json(metrics: Dict[str, object]) -> None:
     PROFILE_JSON.write_text(json.dumps(metrics, indent=2))
 
 
-def run_pipeline(limit: int | None = None) -> None:
-    raw_df = load_raw_data(limit)
+def run_pipeline(
+    limit: int | None = None,
+    raw_path: str | Path | None = None,
+    skip_ml_lab: bool = False,
+) -> None:
+    ensure_directories()
+    source_path = resolve_raw_path(raw_path)
+    raw_df = load_raw_data(source_path, limit)
+    if raw_df.empty:
+        raise ValueError(f"No rows were loaded from {source_path}")
+    log.info("Loaded %s rows with %s columns", len(raw_df), raw_df.shape[1])
     clean_df = clean_dataframe(raw_df)
+    log.info("Cleaned frame: %s rows (%.1f%% retained)", len(clean_df), (len(clean_df) / len(raw_df)) * 100)
     clean_df.to_parquet(INTERIM_PATH, index=False)
+    log.info("Wrote cleaned parquet -> %s", INTERIM_PATH)
     featured_df = engineer_features(clean_df)
+    log.info("Engineered feature columns: %s", featured_df.shape[1])
     featured_df.to_parquet(PROCESSED_PATH, index=False)
+    log.info("Wrote feature parquet -> %s", PROCESSED_PATH)
 
     agg_df = aggregate_area_hour(featured_df)
     agg_df.to_parquet(AGG_AREA_HOUR_PATH, index=False)
+    log.info("Saved area-hour aggregate (%s rows)", len(agg_df))
     aggregate_daily_counts(featured_df).to_parquet(DAILY_VOLUME_PATH, index=False)
     aggregate_call_types(featured_df).to_parquet(CALL_TYPE_SUMMARY_PATH, index=False)
     aggregate_monthly_priority(featured_df).to_parquet(MONTHLY_PRIORITY_PATH, index=False)
     aggregate_family_month(featured_df).to_parquet(CALL_FAMILY_MONTH_PATH, index=False)
+    log.info("Saved secondary aggregates to %s", PROCESSED_PATH.parent)
 
-    if LabConfig and generate_lab_report:
-        try:
-            config = LabConfig(
-                target="priority_level",
-                report_path=ML_LAB_REPORT_PATH,
-                synthetic="auto",
-                seed=13,
-                max_rows=150_000,
-                rf_params={
-                    "n_estimators": 300,
-                    "max_depth": 14,
-                    "n_jobs": -1,
-                    "random_state": 13,
-                },
-            )
-            generate_lab_report(featured_df, config.target, config)
-        except Exception as exc:  # pragma: no cover - diagnostic only
-            print(f"[WARN] Unable to generate ML Lab report: {exc}")
+    safe_run_ml_lab(featured_df, skip_ml_lab=skip_ml_lab)
 
     figures = run_eda_outputs(featured_df)
     metrics = compute_quality_metrics(featured_df)
@@ -571,6 +640,8 @@ def run_pipeline(limit: int | None = None) -> None:
     save_json(payload)
     summary = build_summary_markdown(metrics, insights)
     SUMMARY_PATH.write_text(summary)
+    log.info("Inspection metrics -> %s", PROFILE_JSON)
+    log.info("Summary markdown -> %s", SUMMARY_PATH)
 
 
 def main() -> None:
@@ -581,8 +652,19 @@ def main() -> None:
         default=None,
         help="Optional row limit for debugging.",
     )
+    parser.add_argument(
+        "--raw-path",
+        type=str,
+        default=None,
+        help="Override path to the raw CSV (defaults to the newest matching feed in data/raw).",
+    )
+    parser.add_argument(
+        "--skip-ml-lab",
+        action="store_true",
+        help="Skip model training/report generation to speed up local iterations.",
+    )
     args = parser.parse_args()
-    run_pipeline(limit=args.limit)
+    run_pipeline(limit=args.limit, raw_path=args.raw_path, skip_ml_lab=args.skip_ml_lab)
 
 
 if __name__ == "__main__":

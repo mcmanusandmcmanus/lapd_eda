@@ -31,7 +31,7 @@
         <dl class="meta-list">
             <div>
                 <dt>Algorithm</dt>
-                <dd>{{ lab_metadata.algorithm }} · {{ lab_metadata.n_features }} engineered features</dd>
+                <dd>{{ lab_metadata.algorithm }} &middot; {{ lab_metadata.n_features }} engineered features</dd>
             </div>
             <div>
                 <dt>Target</dt>
@@ -166,7 +166,7 @@
         </div>
         <div class="chip-row">
             {% for item in lab_class_distribution %}
-                <span class="chip">{{ item.label }} · {{ item.count }} ({{ item.share }})</span>
+                <span class="chip">{{ item.label }} &middot; {{ item.count }} ({{ item.share }})</span>
             {% empty %}
                 <span class="chip">Run the lab to populate class counts.</span>
             {% endfor %}

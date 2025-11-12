@@ -69,7 +69,7 @@ class Command(BaseCommand):
         seed = options["seed"]
         report_path = Path(options["report"]).expanduser().resolve()
 
-        self.stdout.write(f"Loading dataset from {data_path} …")
+        self.stdout.write(f"Loading dataset from {data_path} ...")
         frame = _load_frame(data_path)
         if target not in frame.columns:
             raise CommandError(f"Target column '{target}' is not present in {data_path}.")
@@ -91,7 +91,7 @@ class Command(BaseCommand):
         f1_display = f"{f1:.3f}" if f1 is not None else "n/a"
         self.stdout.write(
             self.style.SUCCESS(
-                f"ML Lab complete: test accuracy={accuracy_display} · macro F1={f1_display}".rstrip(".")
+                f"ML Lab complete: test accuracy={accuracy_display} | macro F1={f1_display}".rstrip(".")
             )
         )
         self.stdout.write(self.style.SUCCESS(f"Report -> {report_path}"))
