@@ -119,6 +119,38 @@ body {
     margin-top: 2rem;
 }
 
+.split-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+    margin-top: 1rem;
+}
+
+.split-tag {
+    border: 1px dashed rgba(255,255,255,0.2);
+    border-radius: 0.75rem;
+    padding: 0.6rem 1rem;
+    min-width: 160px;
+}
+
+.split-tag span {
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.6);
+}
+
+.split-tag strong {
+    display: block;
+    font-size: 1.1rem;
+    color: var(--gold);
+}
+
+.split-tag small {
+    color: rgba(255,255,255,0.7);
+}
+
 .profile-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -231,8 +263,56 @@ body {
     color: var(--gold);
 }
 
+.metric-panels {
+    margin-top: 1.2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+}
+
+.metric-panel {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 0.9rem;
+    padding: 0.9rem;
+    background: rgba(255,255,255,0.02);
+}
+
+.metric-panel h4 {
+    margin: 0 0 0.4rem;
+    font-size: 0.9rem;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.metric-panel p {
+    margin: 0.2rem 0;
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.8);
+}
+
+.metric-panel strong {
+    color: var(--gold);
+}
+
 .confusion-table th {
     background: rgba(255,255,255,0.05);
+}
+
+.cm-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.15rem;
+}
+
+.cm-count {
+    font-weight: 600;
+}
+
+.cm-share {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.7);
 }
 
 .feature-chips {
@@ -258,6 +338,12 @@ body {
     margin: 0;
     font-size: 1rem;
     line-height: 1.6;
+    color: rgba(255,255,255,0.85);
+}
+
+.lab-notes-list {
+    margin: 0;
+    padding-left: 1.1rem;
     color: rgba(255,255,255,0.85);
 }
 

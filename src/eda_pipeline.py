@@ -2,22 +2,24 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix, f1_score
-from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline as SKPipeline
-from sklearn.preprocessing import OrdinalEncoder
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
+
+try:
+    from lapd_story.insights.ml_lab import LabConfig, generate_lab_report
+except Exception:  # pragma: no cover
+    LabConfig = None
+    generate_lab_report = None
 RAW_PATH = BASE_DIR / "data" / "raw" / "LAPD_Calls_for_Service_2024_to_Present_20251110.csv"
 INTERIM_PATH = BASE_DIR / "data" / "interim" / "lapd_calls_clean.parquet"
 PROCESSED_PATH = BASE_DIR / "data" / "processed" / "lapd_calls_features.parquet"
@@ -29,7 +31,7 @@ CALL_FAMILY_MONTH_PATH = BASE_DIR / "data" / "processed" / "call_family_month_su
 FIGURES_DIR = BASE_DIR / "reports" / "figures"
 SUMMARY_PATH = BASE_DIR / "reports" / "eda_summary.md"
 PROFILE_JSON = BASE_DIR / "reports" / "inspection_metrics.json"
-ML_LAB_PATH = BASE_DIR / "reports" / "ml_lab.json"
+ML_LAB_REPORT_PATH = BASE_DIR / "reports" / "ml_lab.json"
 SAMPLE_COLUMNS = [
     "Incident_Number",
     "Call_Type_Text",
@@ -423,138 +425,6 @@ def build_categorical_overview(df: pd.DataFrame, top_n: int = 4) -> List[Dict[st
     return sorted(overview, key=lambda item: item["year"])
 
 
-def run_ml_lab(df: pd.DataFrame, sample_size: int = 200_000) -> None:
-    target = "priority_level"
-    feature_columns = [
-        "call_hour",
-        "day_of_year",
-        "calls_since_midnight",
-        "is_weekend",
-        "is_peak_hour",
-        "is_outside_area",
-        "Call_Type_Family",
-        "Area_Occ",
-        "Call_Type_Text",
-        "daypart",
-    ]
-    required_columns = feature_columns + [target]
-    missing_cols = [col for col in required_columns if col not in df.columns]
-    if missing_cols:
-        ML_LAB_PATH.write_text(
-            json.dumps({"error": f"Missing columns: {', '.join(missing_cols)}"}, indent=2)
-        )
-        return
-
-    model_df = df[required_columns].dropna()
-    model_df = model_df[model_df[target].isin(["High", "Moderate", "Routine"])]
-    if model_df.empty:
-        ML_LAB_PATH.write_text(json.dumps({"error": "No rows available for ML lab"}, indent=2))
-        return
-
-    if len(model_df) > sample_size:
-        model_df = model_df.sample(sample_size, random_state=42)
-    model_df = model_df.copy()
-
-    boolean_features = ["is_weekend", "is_peak_hour", "is_outside_area"]
-    bool_converted = {
-        col: model_df[col].astype(int, copy=False)
-        for col in boolean_features
-    }
-    model_df = model_df.assign(**bool_converted)
-
-    numeric_features = ["call_hour", "day_of_year", "calls_since_midnight"] + boolean_features
-    categorical_features = [
-        "Call_Type_Family",
-        "Area_Occ",
-        "Call_Type_Text",
-        "daypart",
-    ]
-
-    X = model_df[numeric_features + categorical_features]
-    y = model_df[target]
-    stratify = y if y.nunique() > 1 else None
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.2,
-        random_state=42,
-        stratify=stratify,
-    )
-
-    preprocess = ColumnTransformer(
-        transformers=[
-            ("num", "passthrough", numeric_features),
-            (
-                "cat",
-                OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1),
-                categorical_features,
-            ),
-        ],
-        remainder="drop",
-    )
-    clf = RandomForestClassifier(
-        n_estimators=200,
-        max_depth=14,
-        random_state=42,
-        n_jobs=-1,
-        class_weight="balanced_subsample",
-    )
-    model = SKPipeline(steps=[("preprocess", preprocess), ("clf", clf)])
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-
-    accuracy = float((y_pred == y_test).mean())
-    macro_f1 = float(f1_score(y_test, y_pred, average="macro"))
-    weighted_f1 = float(f1_score(y_test, y_pred, average="weighted"))
-    labels = model.named_steps["clf"].classes_.tolist()
-    cm = confusion_matrix(y_test, y_pred, labels=labels).tolist()
-
-    report_raw = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-    report: Dict[str, object] = {}
-    for label, stats in report_raw.items():
-        if isinstance(stats, dict):
-            report[label] = {
-                metric: (round(float(value), 4) if isinstance(value, (int, float)) else value)
-                for metric, value in stats.items()
-            }
-        else:
-            report[label] = round(float(stats), 4)
-    feature_names = numeric_features + categorical_features
-    importances = model.named_steps["clf"].feature_importances_.tolist()
-    feature_rows = sorted(
-        [
-            {"feature": name, "importance": round(float(score), 4)}
-            for name, score in zip(feature_names, importances, strict=False)
-        ],
-        key=lambda item: item["importance"],
-        reverse=True,
-    )[:15]
-
-    payload = {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
-        "training_rows": int(len(X_train)),
-        "test_rows": int(len(X_test)),
-        "target": target,
-        "model": {
-            "algorithm": "RandomForestClassifier",
-            "max_depth": 14,
-            "estimators": 200,
-        },
-        "metrics": {
-            "accuracy": round(accuracy, 4),
-            "macro_f1": round(macro_f1, 4),
-            "weighted_f1": round(weighted_f1, 4),
-        },
-        "classification_report": report,
-        "confusion_matrix": {"labels": labels, "matrix": cm},
-        "feature_importances": feature_rows,
-        "feature_catalog": {
-            "numeric": numeric_features,
-            "categorical": categorical_features,
-        },
-        "notes": "Model trained on sampled LAPD calls to classify priority level. Static dataset snapshot.",
-    }
-    ML_LAB_PATH.write_text(json.dumps(payload, indent=2))
 
 
 def build_summary_markdown(metrics: Dict[str, object], insights: Dict[str, object]) -> str:
@@ -667,7 +537,25 @@ def run_pipeline(limit: int | None = None) -> None:
     aggregate_call_types(featured_df).to_parquet(CALL_TYPE_SUMMARY_PATH, index=False)
     aggregate_monthly_priority(featured_df).to_parquet(MONTHLY_PRIORITY_PATH, index=False)
     aggregate_family_month(featured_df).to_parquet(CALL_FAMILY_MONTH_PATH, index=False)
-    run_ml_lab(featured_df)
+
+    if LabConfig and generate_lab_report:
+        try:
+            config = LabConfig(
+                target="priority_level",
+                report_path=ML_LAB_REPORT_PATH,
+                synthetic="auto",
+                seed=13,
+                max_rows=150_000,
+                rf_params={
+                    "n_estimators": 300,
+                    "max_depth": 14,
+                    "n_jobs": -1,
+                    "random_state": 13,
+                },
+            )
+            generate_lab_report(featured_df, config.target, config)
+        except Exception as exc:  # pragma: no cover - diagnostic only
+            print(f"[WARN] Unable to generate ML Lab report: {exc}")
 
     figures = run_eda_outputs(featured_df)
     metrics = compute_quality_metrics(featured_df)

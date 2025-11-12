@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
+from itertools import zip_longest
+from pathlib import Path
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -342,37 +344,59 @@ def categorical_rollup(limit: int = 4) -> List[Dict[str, object]]:
 
 @lru_cache(maxsize=1)
 def load_lab_report() -> Dict[str, Any]:
-    path = settings.ML_LAB_PATH
+    config = getattr(settings, "ML_LAB", {})
+    path_value = config.get("report_path", getattr(settings, "ML_LAB_PATH", None))
+    if not path_value:
+        return {}
+    path = Path(path_value)
     if not path.exists():
         return {}
     return json.loads(path.read_text())
 
 
+def _lab_metric_block(name: str) -> Dict[str, Any]:
+    return load_lab_report().get("metrics", {}).get(name, {})
+
+
 def lab_headlines() -> Dict[str, str]:
-    report = load_lab_report()
-    metrics = report.get("metrics", {})
+    metrics = _lab_metric_block("test") or _lab_metric_block("validation")
     return {
         "accuracy": _format_percent(metrics.get("accuracy")),
-        "macro_f1": _format_percent(metrics.get("macro_f1")),
-        "weighted_f1": _format_percent(metrics.get("weighted_f1")),
+        "macro_f1": _format_percent(metrics.get("f1_macro")),
+        "weighted_f1": _format_percent(metrics.get("f1_weighted")),
     }
 
 
-def lab_metadata() -> Dict[str, str]:
+def lab_metadata() -> Dict[str, Any]:
     report = load_lab_report()
-    model = report.get("model", {})
-    generated_at = report.get("generated_at")
-    depth = model.get("max_depth")
-    estimators = model.get("estimators")
+    meta = report.get("meta", {})
+    splits = report.get("splits", {})
+
+    def _split(key: str) -> Dict[str, Any]:
+        block = splits.get(key, {})
+        if isinstance(block, dict):
+            return {
+                "share": _format_percent(block.get("share")),
+                "rows": f"{block.get('rows', 0):,}",
+            }
+        return {"share": _format_percent(block), "rows": "n/a"}
+
     return {
-        "algorithm": model.get("algorithm", "RandomForestClassifier"),
-        "depth": depth if depth is not None else "n/a",
-        "estimators": estimators if estimators is not None else "n/a",
-        "target": report.get("target", "priority_level"),
-        "training_rows": f"{report.get('training_rows', 0):,}",
-        "test_rows": f"{report.get('test_rows', 0):,}",
-        "generated_at": _format_timestamp(generated_at),
-        "notes": report.get("notes", ""),
+        "algorithm": "RandomForestClassifier",
+        "sampler": meta.get("sampler") or "None",
+        "used_synthetic": bool(meta.get("used_synthetic")),
+        "target": meta.get("target", "priority_level"),
+        "n_samples": f"{meta.get('n_samples', 0):,}",
+        "n_features": meta.get("n_features", 0),
+        "minority_ratio": _format_percent(meta.get("minority_ratio")),
+        "generated_at": _format_timestamp(meta.get("created_at")),
+        "splits": {
+            "train": _split("train"),
+            "val": _split("val"),
+            "test": _split("test"),
+        },
+        "class_distribution": meta.get("class_distribution", {}),
+        "notes": meta.get("notes", []),
     }
 
 
@@ -409,54 +433,87 @@ def lab_feature_chart(limit: int = 10) -> Dict[str, Any]:
 
 
 def lab_confusion_rows() -> List[Dict[str, Any]]:
-    report = load_lab_report()
-    matrix = report.get("confusion_matrix", {})
+    matrix = load_lab_report().get("confusion_matrix", {})
     labels = matrix.get("labels", [])
-    rows = matrix.get("matrix", [])
-    formatted = []
-    for label, values in zip(labels, rows):
-        formatted.append({"label": label, "values": values})
+    raw_rows = matrix.get("raw", [])
+    norm_rows = matrix.get("normalized", [])
+    formatted: List[Dict[str, Any]] = []
+    for idx, label in enumerate(labels):
+        raw_values = raw_rows[idx] if idx < len(raw_rows) else []
+        norm_values = norm_rows[idx] if idx < len(norm_rows) else []
+        cells = [
+            {
+                "raw": raw,
+                "normalized": norm,
+            }
+            for raw, norm in zip_longest(raw_values, norm_values, fillvalue=0)
+        ]
+        formatted.append({"label": label, "cells": cells})
     return formatted
 
 
 def lab_classification_rows() -> List[Dict[str, Any]]:
-    report = load_lab_report()
-    data = report.get("classification_report", {})
-    row_order = report.get("confusion_matrix", {}).get("labels", [])
-    extras = ["macro avg", "weighted avg"]
+    block = _lab_metric_block("test")
     rows = []
-    for label in row_order + extras:
-        stats = data.get(label)
-        if not isinstance(stats, dict):
-            continue
+    for entry in block.get("by_class", []):
         rows.append(
             {
-                "label": label.title() if label in extras else label,
-                "precision": _format_percent(stats.get("precision")),
-                "recall": _format_percent(stats.get("recall")),
-                "f1": _format_percent(stats.get("f1-score")),
-                "support": int(stats.get("support", 0)),
+                "label": entry.get("label"),
+                "precision": _format_percent(entry.get("precision")),
+                "recall": _format_percent(entry.get("recall")),
+                "f1": _format_percent(entry.get("f1")),
+                "support": int(entry.get("support", 0)),
             }
         )
     return rows
 
 
 def lab_confusion_labels() -> List[str]:
-    report = load_lab_report()
-    return report.get("confusion_matrix", {}).get("labels", [])
+    return load_lab_report().get("confusion_matrix", {}).get("labels", [])
 
 
-def lab_feature_catalog() -> Dict[str, List[str]]:
-    report = load_lab_report()
-    catalog = report.get("feature_catalog", {})
-    return {
-        "numeric": catalog.get("numeric", []),
-        "categorical": catalog.get("categorical", []),
-    }
+def lab_metric_panels() -> List[Dict[str, str]]:
+    panels = []
+    for key, label in (("validation", "Validation"), ("test", "Test")):
+        block = _lab_metric_block(key)
+        if not block:
+            continue
+        panels.append(
+            {
+                "label": label,
+                "accuracy": _format_percent(block.get("accuracy")),
+                "precision": _format_percent(block.get("precision_macro")),
+                "recall": _format_percent(block.get("recall_macro")),
+                "f1": _format_percent(block.get("f1_macro")),
+            }
+        )
+    return panels
 
 
-def lab_notes() -> str:
-    return lab_metadata().get("notes", "")
+def lab_class_distribution() -> List[Dict[str, str]]:
+    meta = lab_metadata()
+    distribution = meta.get("class_distribution", {})
+    counts = [int(value) for value in distribution.values()] or [0]
+    total = sum(counts) or 1
+    rows = []
+    for label, count in distribution.items():
+        numeric_count = int(count)
+        share = numeric_count / total if total else 0
+        rows.append(
+            {
+                "label": label,
+                "count": f"{numeric_count:,}",
+                "share": _format_percent(share),
+            }
+        )
+    return rows
+
+
+def lab_notes() -> List[str]:
+    notes = lab_metadata().get("notes", [])
+    if isinstance(notes, list):
+        return notes
+    return [str(notes)]
 
 
 def _format_date(value: str | None) -> str:

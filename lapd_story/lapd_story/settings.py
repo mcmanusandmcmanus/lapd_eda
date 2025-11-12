@@ -144,4 +144,18 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 PROCESSED_DATA_DIR = REPO_ROOT / 'data' / 'processed'
 INSPECTION_REPORT_PATH = REPO_ROOT / 'reports' / 'inspection_metrics.json'
-ML_LAB_PATH = REPO_ROOT / 'reports' / 'ml_lab.json'
+ML_LAB = {
+    "data_path": PROCESSED_DATA_DIR / 'lapd_calls_features.parquet',
+    "report_path": REPO_ROOT / 'reports' / 'ml_lab.json',
+    "target": "priority_level",
+    "synthetic": "auto",
+    "seed": 13,
+    "max_rows": 150_000,
+    "rf_params": {
+        "n_estimators": 300,
+        "max_depth": 14,
+        "n_jobs": -1,
+        "random_state": 13,
+    },
+}
+ML_LAB_PATH = ML_LAB["report_path"]

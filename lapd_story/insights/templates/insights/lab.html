@@ -26,29 +26,39 @@
     <article class="section">
         <div class="section-header">
             <h2>Experiment snapshot</h2>
-            <p>Static run on {{ lab_metadata.training_rows }} training rows</p>
+            <p>Generated {{ lab_metadata.generated_at }} using {{ lab_metadata.algorithm }}</p>
         </div>
         <dl class="meta-list">
             <div>
                 <dt>Algorithm</dt>
-                <dd>{{ lab_metadata.algorithm }} (depth {{ lab_metadata.depth }}, {{ lab_metadata.estimators }} trees)</dd>
+                <dd>{{ lab_metadata.algorithm }} · {{ lab_metadata.n_features }} engineered features</dd>
             </div>
             <div>
                 <dt>Target</dt>
                 <dd>{{ lab_metadata.target|title }}</dd>
             </div>
             <div>
-                <dt>Train / test</dt>
-                <dd>{{ lab_metadata.training_rows }} train · {{ lab_metadata.test_rows }} test</dd>
+                <dt>Samples analysed</dt>
+                <dd>{{ lab_metadata.n_samples }}</dd>
             </div>
             <div>
-                <dt>Generated</dt>
-                <dd>{{ lab_metadata.generated_at }}</dd>
+                <dt>Minority ratio</dt>
+                <dd>{{ lab_metadata.minority_ratio }}</dd>
+            </div>
+            <div>
+                <dt>Synthetic assist</dt>
+                <dd>{% if lab_metadata.used_synthetic %}{{ lab_metadata.sampler }}{% else %}None{% endif %}</dd>
             </div>
         </dl>
-        {% if lab_notes %}
-            <p class="meta-notes">{{ lab_notes }}</p>
-        {% endif %}
+        <div class="split-tags">
+            {% for name, split in lab_metadata.splits.items %}
+                <div class="split-tag">
+                    <span>{{ name|title }} share</span>
+                    <strong>{{ split.share }}</strong>
+                    <small>{{ split.rows }} rows</small>
+                </div>
+            {% endfor %}
+        </div>
     </article>
     <article class="section">
         <div class="section-header">
@@ -66,6 +76,19 @@
                 <li>No feature insights available.</li>
             {% endfor %}
         </ul>
+        <div class="metric-panels">
+            {% for panel in lab_metric_panels %}
+                <div class="metric-panel">
+                    <h4>{{ panel.label }}</h4>
+                    <p>Accuracy <strong>{{ panel.accuracy }}</strong></p>
+                    <p>Precision <strong>{{ panel.precision }}</strong></p>
+                    <p>Recall <strong>{{ panel.recall }}</strong></p>
+                    <p>F1 <strong>{{ panel.f1 }}</strong></p>
+                </div>
+            {% empty %}
+                <p class="meta-notes">Run the lab to populate validation/test metrics.</p>
+            {% endfor %}
+        </div>
     </article>
 </section>
 
@@ -88,8 +111,13 @@
                 {% for row in lab_confusion_rows %}
                     <tr>
                         <th>{{ row.label }}</th>
-                        {% for value in row.values %}
-                            <td>{{ value|intcomma }}</td>
+                        {% for cell in row.cells %}
+                            <td>
+                                <div class="cm-cell">
+                                    <span class="cm-count">{{ cell.raw|intcomma }}</span>
+                                    <span class="cm-share">{{ cell.normalized|floatformat:2 }}</span>
+                                </div>
+                            </td>
                         {% endfor %}
                     </tr>
                 {% empty %}
@@ -133,30 +161,15 @@
 <section class="grid lab-catalog-grid">
     <article class="section">
         <div class="section-header">
-            <h2>Feature catalog</h2>
-            <p>Signals available to future ML workflows</p>
+            <h2>Class distribution</h2>
+            <p>Observed support across labelled outcomes</p>
         </div>
-        <div class="feature-chips">
-            <div>
-                <h4>Numeric</h4>
-                <div class="chip-row">
-                    {% for item in lab_feature_catalog.numeric %}
-                        <span class="chip">{{ item }}</span>
-                    {% empty %}
-                        <span class="chip">n/a</span>
-                    {% endfor %}
-                </div>
-            </div>
-            <div>
-                <h4>Categorical</h4>
-                <div class="chip-row">
-                    {% for item in lab_feature_catalog.categorical %}
-                        <span class="chip">{{ item }}</span>
-                    {% empty %}
-                        <span class="chip">n/a</span>
-                    {% endfor %}
-                </div>
-            </div>
+        <div class="chip-row">
+            {% for item in lab_class_distribution %}
+                <span class="chip">{{ item.label }} · {{ item.count }} ({{ item.share }})</span>
+            {% empty %}
+                <span class="chip">Run the lab to populate class counts.</span>
+            {% endfor %}
         </div>
     </article>
     <article class="section">
@@ -164,9 +177,15 @@
             <h2>Lab notes</h2>
             <p>Operational context for the current run</p>
         </div>
-        <p class="lab-notes">
-            {{ lab_notes|default:"Static model run for narrative purposes. Replace with live ML pipeline outputs for production." }}
-        </p>
+        {% if lab_notes %}
+            <ul class="lab-notes-list">
+                {% for note in lab_notes %}
+                    <li>{{ note }}</li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="lab-notes">Static model run for narrative purposes. Replace with live ML pipeline outputs for production.</p>
+        {% endif %}
     </article>
 </section>
 {% endblock %}
