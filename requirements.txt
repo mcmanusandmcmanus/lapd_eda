@@ -1,0 +1,15 @@
+pandas==2.2.2
+numpy==1.26.4
+matplotlib==3.8.4
+seaborn==0.13.2
+plotly==5.22.0
+pyarrow==15.0.2
+scikit-learn==1.5.1
+folium==0.16.0
+python-dateutil==2.9.0.post0
+pytz==2024.1
+django==5.1.1
+django-environ==0.11.2
+whitenoise==6.7.0
+gunicorn==22.0.0
+psycopg[binary]==3.2.1

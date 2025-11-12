@@ -1,0 +1,42 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LAPD Insights{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/base.css' %}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <header class="site-header">
+        <div class="site-title">
+            <span class="eyebrow">City of Los Angeles</span>
+            <h1>LAPD Operational Intelligence</h1>
+            <p class="subtitle">Live insights for staffing, situational awareness, and command briefing.</p>
+        </div>
+        <div class="header-kpis">
+            <div class="badge">Updated nightly</div>
+            <div class="badge secondary">Data refresh &#x2022; Render-ready</div>
+        </div>
+        <nav class="site-nav">
+            <a href="{% url 'insights:dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+                Operational Dashboard
+            </a>
+            <a href="{% url 'insights:lab' %}" class="nav-link {% if request.resolver_match.url_name == 'lab' %}active{% endif %}">
+                Data Science Lab
+            </a>
+        </nav>
+    </header>
+    <main class="site-main">
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="site-footer">
+        <p>Powered by Django, Render, and scikit-learn-ready data pipelines.</p>
+    </footer>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

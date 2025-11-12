@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}Data Science Lab &middot; LAPD Insights{% endblock %}
+
+{% block content %}
+<section class="grid cards-grid lab-hero">
+    <article class="card">
+        <h4>Model accuracy</h4>
+        <p class="value">{{ lab_headlines.accuracy }}</p>
+        <p class="caption">Random forest classifier predicting LAPD priority</p>
+    </article>
+    <article class="card">
+        <h4>Macro F1</h4>
+        <p class="value">{{ lab_headlines.macro_f1 }}</p>
+        <p class="caption">Balances precision and recall across classes</p>
+    </article>
+    <article class="card">
+        <h4>Weighted F1</h4>
+        <p class="value">{{ lab_headlines.weighted_f1 }}</p>
+        <p class="caption">Volume-adjusted score (routine calls dominate)</p>
+    </article>
+</section>
+
+<section class="grid lab-meta-grid">
+    <article class="section">
+        <div class="section-header">
+            <h2>Experiment snapshot</h2>
+            <p>Static run on {{ lab_metadata.training_rows }} training rows</p>
+        </div>
+        <dl class="meta-list">
+            <div>
+                <dt>Algorithm</dt>
+                <dd>{{ lab_metadata.algorithm }} (depth {{ lab_metadata.depth }}, {{ lab_metadata.estimators }} trees)</dd>
+            </div>
+            <div>
+                <dt>Target</dt>
+                <dd>{{ lab_metadata.target|title }}</dd>
+            </div>
+            <div>
+                <dt>Train / test</dt>
+                <dd>{{ lab_metadata.training_rows }} train · {{ lab_metadata.test_rows }} test</dd>
+            </div>
+            <div>
+                <dt>Generated</dt>
+                <dd>{{ lab_metadata.generated_at }}</dd>
+            </div>
+        </dl>
+        {% if lab_notes %}
+            <p class="meta-notes">{{ lab_notes }}</p>
+        {% endif %}
+    </article>
+    <article class="section">
+        <div class="section-header">
+            <h2>Feature signal</h2>
+            <p>Relative importance of engineered predictors</p>
+        </div>
+        <canvas id="featureChart"></canvas>
+        <ul class="feature-list">
+            {% for row in lab_feature_importances %}
+                <li>
+                    <span>{{ row.feature }}</span>
+                    <strong>{{ row.importance }}%</strong>
+                </li>
+            {% empty %}
+                <li>No feature insights available.</li>
+            {% endfor %}
+        </ul>
+    </article>
+</section>
+
+<section class="grid lab-analysis-grid">
+    <article class="section">
+        <div class="section-header">
+            <h2>Confusion matrix</h2>
+            <p>Observed vs. predicted LAPD priority levels</p>
+        </div>
+        <table class="table compact confusion-table">
+            <thead>
+                <tr>
+                    <th>Actual &rarr; Predicted</th>
+                    {% for label in lab_confusion_labels %}
+                        <th>{{ label }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in lab_confusion_rows %}
+                    <tr>
+                        <th>{{ row.label }}</th>
+                        {% for value in row.values %}
+                            <td>{{ value|intcomma }}</td>
+                        {% endfor %}
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="4">No confusion matrix computed.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </article>
+    <article class="section">
+        <div class="section-header">
+            <h2>Classification report</h2>
+            <p>Precision, recall, and F1 by class</p>
+        </div>
+        <table class="table compact">
+            <thead>
+                <tr>
+                    <th>Class</th>
+                    <th>Precision</th>
+                    <th>Recall</th>
+                    <th>F1</th>
+                    <th>Support</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in lab_classification_rows %}
+                    <tr>
+                        <td>{{ row.label }}</td>
+                        <td>{{ row.precision }}</td>
+                        <td>{{ row.recall }}</td>
+                        <td>{{ row.f1 }}</td>
+                        <td>{{ row.support|intcomma }}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="5">Classification summary unavailable.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </article>
+</section>
+
+<section class="grid lab-catalog-grid">
+    <article class="section">
+        <div class="section-header">
+            <h2>Feature catalog</h2>
+            <p>Signals available to future ML workflows</p>
+        </div>
+        <div class="feature-chips">
+            <div>
+                <h4>Numeric</h4>
+                <div class="chip-row">
+                    {% for item in lab_feature_catalog.numeric %}
+                        <span class="chip">{{ item }}</span>
+                    {% empty %}
+                        <span class="chip">n/a</span>
+                    {% endfor %}
+                </div>
+            </div>
+            <div>
+                <h4>Categorical</h4>
+                <div class="chip-row">
+                    {% for item in lab_feature_catalog.categorical %}
+                        <span class="chip">{{ item }}</span>
+                    {% empty %}
+                        <span class="chip">n/a</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </article>
+    <article class="section">
+        <div class="section-header">
+            <h2>Lab notes</h2>
+            <p>Operational context for the current run</p>
+        </div>
+        <p class="lab-notes">
+            {{ lab_notes|default:"Static model run for narrative purposes. Replace with live ML pipeline outputs for production." }}
+        </p>
+    </article>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const featureConfig = {{ feature_chart_json|safe }};
+    if (Object.keys(featureConfig).length) {
+        const ctx = document.getElementById('featureChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: featureConfig,
+            options: {
+                indexAxis: 'y',
+                plugins: { legend: { display: false }},
+                scales: {
+                    x: { ticks: { color: '#e6edf7', callback: (value) => value + '%' }, grid: { color: 'rgba(255,255,255,0.08)' }},
+                    y: { ticks: { color: '#e6edf7' }, grid: { display: false } }
+                }
+            }
+        });
+    }
+</script>
+{% endblock %}

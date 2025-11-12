@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: lapd-story-insights
+    env: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      python src/eda_pipeline.py
+      cd lapd_story && python manage.py collectstatic --noinput
+    startCommand: gunicorn lapd_story.wsgi:application --chdir lapd_story --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: lapd_story.settings
+      - key: PYTHON_VERSION
+        value: 3.10

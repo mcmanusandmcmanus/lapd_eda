@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+lapd_story/db.sqlite3
+lapd_story/staticfiles/
+.env
+lapd_story/.env
+data/raw/
+data/interim/
+data/processed/
+reports/figures/
+reports/inspection_metrics.json
+reports/ml_lab.json

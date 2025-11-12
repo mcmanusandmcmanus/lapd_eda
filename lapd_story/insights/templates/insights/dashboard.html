@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}LAPD Operational Intelligence{% endblock %}
+
+{% block content %}
+<section class="grid cards-grid">
+    {% for card in summary_cards %}
+        <article class="card">
+            <h4>{{ card.title }}</h4>
+            <p class="value">{{ card.value }}</p>
+            <p class="caption">{{ card.caption }}</p>
+        </article>
+    {% endfor %}
+</section>
+
+<section class="grid profile-grid" style="margin-top: 2rem; gap: 1.5rem;">
+    <article class="section">
+        <div class="section-header">
+            <h2>Dataset profile</h2>
+            <p>Shape, schema, and sample rows from the current feed</p>
+        </div>
+        <div class="profile-stats">
+            <div class="profile-stat">
+                <small>Rows processed</small>
+                <strong>{{ dataset_profile.rows_display }}</strong>
+            </div>
+            <div class="profile-stat">
+                <small>Total columns</small>
+                <strong>{{ dataset_profile.columns }}</strong>
+            </div>
+            <div class="profile-stat">
+                <small>Numeric fields</small>
+                <strong>{{ dataset_profile.numeric_count }}</strong>
+            </div>
+            <div class="profile-stat">
+                <small>Categorical fields</small>
+                <strong>{{ dataset_profile.categorical_count }}</strong>
+            </div>
+            <div class="profile-stat">
+                <small>Datetime fields</small>
+                <strong>{{ dataset_profile.datetime_count }}</strong>
+            </div>
+            <div class="profile-stat">
+                <small>Memory footprint</small>
+                <strong>{{ dataset_profile.memory_display }}</strong>
+            </div>
+        </div>
+        <div class="schema-tags">
+            <div class="schema-tag">
+                <h4>Numeric highlights</h4>
+                <p>{{ dataset_profile.numeric_columns|join:", " }}</p>
+            </div>
+            <div class="schema-tag">
+                <h4>Categorical highlights</h4>
+                <p>{{ dataset_profile.categorical_columns|join:", " }}</p>
+            </div>
+            <div class="schema-tag">
+                <h4>Temporal fields</h4>
+                <p>{{ dataset_profile.datetime_columns|join:", " }}</p>
+            </div>
+        </div>
+        {% if dataset_profile.sample_rows %}
+            <div class="sample-table">
+                <table class="table compact">
+                    <thead>
+                        <tr>
+                            {% for col in dataset_profile.sample_columns %}
+                                <th>{{ col|title }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in dataset_profile.sample_rows %}
+                            <tr>
+                                {% for cell in row %}
+                                    <td>{{ cell }}</td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </article>
+    <article class="section">
+        <div class="section-header">
+            <h2>Categorical outlook</h2>
+            <p>Top families by year with their share of dispatches</p>
+        </div>
+        <div class="year-grid">
+            {% for bucket in categorical_rollup %}
+                <div class="year-card">
+                    <div class="year-label">{{ bucket.year }}</div>
+                    <p class="year-months">{{ bucket.months|length }} months of data</p>
+                    <ul class="year-list">
+                        {% for fam in bucket.top_families %}
+                            <li>
+                                <span>{{ fam.name }}</span>
+                                <span>{{ fam.share }}</span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% empty %}
+                <p>No categorical breakdown available yet.</p>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<section class="grid" style="margin-top: 2rem; gap: 1.5rem;">
+    <article class="section">
+        <div class="section-header">
+            <h2>Monthly priority rhythm</h2>
+            <p>Stacked monthly totals segmented by LAPD priority</p>
+        </div>
+        <canvas id="monthlyPriorityChart"></canvas>
+    </article>
+    <article class="section">
+        <div class="section-header">
+            <h2>Category heartbeat</h2>
+            <p>Trending call-type families across months</p>
+        </div>
+        <canvas id="familyTrendChart"></canvas>
+    </article>
+</section>
+
+<section class="grid" style="margin-top: 2rem; gap: 1.5rem;">
+    <article class="section">
+        <div class="section-header">
+            <h2>Tempo & demand profile</h2>
+            <p>Rolling daily call volumes with peaks highlighted</p>
+        </div>
+        <canvas id="dailyChart"></canvas>
+    </article>
+    <article class="section">
+        <div class="section-header">
+            <h2>Hour-of-day cadence</h2>
+            <p>Where dispatch pressure lands during a 24h cycle</p>
+        </div>
+        <canvas id="hourlyChart"></canvas>
+    </article>
+</section>
+
+<section class="grid" style="margin-top: 2rem; gap: 1.5rem;">
+    <article class="section">
+        <div class="section-header">
+            <h2>Call type leaderboard</h2>
+            <p>Blend of volume and operational priority</p>
+        </div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Call type</th>
+                    <th>Priority</th>
+                    <th>Calls</th>
+                    <th>Share</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in call_type_rows %}
+                    <tr>
+                        <td>{{ row.call_type }}</td>
+                        <td>{{ row.priority }}</td>
+                        <td>{{ row.calls }}</td>
+                        <td>{{ row.share }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </article>
+    <article class="section">
+        <div class="section-header">
+            <h2>Priority mix</h2>
+            <p>Share of calls tagged High / Moderate / Routine</p>
+        </div>
+        <div class="spotlights">
+            {% for item in priority_mix_items %}
+                <div class="spotlight">
+                    <h3>{{ item.label }}</h3>
+                    <p>{{ item.display }} of calls</p>
+                </div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<section class="section" style="margin-top: 2rem;">
+    <div class="section-header">
+        <h2>Top-area heatmap</h2>
+        <p>Hour-by-hour call share across the most active divisions</p>
+    </div>
+    <div class="heatmap">
+        <div class="heatmap-grid">
+            <div class="heatmap-cell heatmap-label">Area / Hour</div>
+            {% for hour in heatmap_hours %}
+                <div class="heatmap-cell"><small>{{ hour|stringformat:"02d" }}h</small></div>
+            {% endfor %}
+            {% for area, cells in heatmap_rows %}
+                <div class="heatmap-cell heatmap-label">{{ area }}</div>
+                {% for cell in cells %}
+                    <div class="heatmap-cell" style="background: rgba(26,170,230,{{ cell.intensity|floatformat:2 }});">
+                        {{ cell.value }}
+                    </div>
+                {% endfor %}
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<section class="section" style="margin-top: 2rem;">
+    <div class="section-header">
+        <h2>Story spotlights</h2>
+        <p>Insights to brief command staff</p>
+    </div>
+    <div class="spotlights">
+        {% for item in spotlights %}
+            <div class="spotlight">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.detail }}</p>
+            </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const dailyCtx = document.getElementById('dailyChart').getContext('2d');
+    const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
+    const priorityCanvas = document.getElementById('monthlyPriorityChart');
+    const familyCanvas = document.getElementById('familyTrendChart');
+    const dailyConfig = {{ daily_chart_json|safe }};
+    const hourlyConfig = {{ hourly_chart_json|safe }};
+    const monthlyPriorityConfig = {{ monthly_priority_chart_json|safe }};
+    const familyTrendConfig = {{ family_trend_chart_json|safe }};
+
+    if (Object.keys(dailyConfig).length) {
+        new Chart(dailyCtx, {
+            type: 'line',
+            data: dailyConfig,
+            options: {
+                plugins: { legend: { display: false }},
+                scales: {
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#e6edf7' } },
+                    x: { ticks: { color: '#e6edf7', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }
+                }
+            }
+        });
+    }
+
+    if (priorityCanvas && Object.keys(monthlyPriorityConfig).length) {
+        new Chart(priorityCanvas.getContext('2d'), {
+            type: 'line',
+            data: monthlyPriorityConfig,
+            options: {
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'bottom', labels: { color: '#e6edf7' } } },
+                scales: {
+                    y: { stacked: true, grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#e6edf7' } },
+                    x: { stacked: true, ticks: { color: '#e6edf7', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }
+                }
+            }
+        });
+    }
+
+    if (familyCanvas && Object.keys(familyTrendConfig).length) {
+        new Chart(familyCanvas.getContext('2d'), {
+            type: 'line',
+            data: familyTrendConfig,
+            options: {
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'bottom', labels: { color: '#e6edf7' } } },
+                scales: {
+                    y: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#e6edf7' } },
+                    x: { ticks: { color: '#e6edf7', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }
+                }
+            }
+        });
+    }
+
+    if (Object.keys(hourlyConfig).length) {
+        new Chart(hourlyCtx, {
+            type: 'bar',
+            data: hourlyConfig,
+            options: {
+                plugins: { legend: { display: false }},
+                scales: {
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#e6edf7' } },
+                    x: { ticks: { color: '#e6edf7' } }
+                }
+            }
+        });
+    }
+</script>
+{% endblock %}
